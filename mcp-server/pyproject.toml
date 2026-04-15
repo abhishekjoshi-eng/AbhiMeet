@@ -1,0 +1,16 @@
+[project]
+name = "abhimeet-mcp"
+version = "1.0.0"
+description = "AbhiMeet MCP Server - Meeting recording manager for Claude"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]>=1.2.0",
+    "faster-whisper>=1.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]

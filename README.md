@@ -4,7 +4,7 @@
 
 A free, open-source alternative to Fireflies.ai — record meetings locally, transcribe in multiple languages using Whisper AI, and generate reports directly through Claude.
 
-Created by **Abhishek Joshi** ([@abhishekjoshi](https://github.com/abhishekjoshi))
+Created by **Abhishek Joshi** ([@abhishekjoshi-eng](https://github.com/abhishekjoshi-eng))
 
 ---
 
@@ -52,7 +52,7 @@ abhimeet/
 
 ```bash
 # Clone the repo
-git clone https://github.com/abhishekjoshi/abhimeet.git
+git clone https://github.com/abhishekjoshi-eng/AbhiMeet.git
 cd abhimeet
 
 # Install Electron app
@@ -175,7 +175,7 @@ MIT License - see [LICENSE](LICENSE)
 
 **Abhishek Joshi**
 - Director, Prakash Trading Co.
-- GitHub: [@abhishekjoshi](https://github.com/abhishekjoshi)
+- GitHub: [@abhishekjoshi-eng](https://github.com/abhishekjoshi-eng)
 
 ---
 

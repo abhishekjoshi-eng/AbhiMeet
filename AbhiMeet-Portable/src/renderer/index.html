@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' blob:; img-src 'self' data: blob:;">
+    <title>AbhiMeet</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Sidebar Navigation -->
+        <nav id="sidebar">
+            <div class="sidebar-brand">
+                <div class="brand-icon">
+                    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                        <circle cx="14" cy="14" r="13" stroke="currentColor" stroke-width="2"/>
+                        <circle cx="14" cy="14" r="5" fill="currentColor"/>
+                        <circle cx="14" cy="14" r="9" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 3"/>
+                    </svg>
+                </div>
+                <span class="brand-name">AbhiMeet</span>
+            </div>
+
+            <div class="nav-items">
+                <button class="nav-item active" data-panel="recorder">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                        <line x1="12" y1="19" x2="12" y2="23"/>
+                        <line x1="8" y1="23" x2="16" y2="23"/>
+                    </svg>
+                    <span>Record</span>
+                </button>
+                <button class="nav-item" data-panel="recordings">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    <span>Recordings</span>
+                </button>
+                <button class="nav-item" data-panel="settings">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                    <span>Settings</span>
+                </button>
+            </div>
+
+            <div class="sidebar-footer">
+                <div class="storage-indicator">
+                    <span class="storage-dot"></span>
+                    <span class="storage-label" id="storageLabel">MCP Connected</span>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main id="content">
+
+            <!-- ═══ RECORDER PANEL ═══ -->
+            <section id="panel-recorder" class="panel active">
+                <div class="panel-header">
+                    <h1>Meeting Recorder</h1>
+                    <p class="subtitle">Record audio and screen - Claude will transcribe and analyze</p>
+                </div>
+
+                <div class="recorder-container">
+                    <!-- Meeting Title -->
+                    <div class="title-input-wrapper">
+                        <input type="text" id="meetingTitle" placeholder="Meeting title (optional)" class="title-input" />
+                    </div>
+
+                    <!-- Recording Button -->
+                    <div class="record-button-container">
+                        <button id="recordBtn" class="record-btn" title="Start Recording">
+                            <div class="record-btn-inner">
+                                <div class="record-icon"></div>
+                            </div>
+                            <div class="record-pulse"></div>
+                        </button>
+                        <div class="record-label" id="recordLabel">Click to Start</div>
+                    </div>
+
+                    <!-- Timer -->
+                    <div class="timer-display" id="timerDisplay">
+                        <span class="timer-value">00:00:00</span>
+                    </div>
+
+                    <!-- Audio Level Meter -->
+                    <div class="level-meter-container" id="levelMeterContainer" style="display: none;">
+                        <div class="level-meter">
+                            <div class="level-bar" id="levelBar"></div>
+                        </div>
+                        <span class="level-label">Audio Level</span>
+                    </div>
+
+                    <!-- Recording Options (toggles) -->
+                    <div class="recording-options">
+                        <label class="toggle-option">
+                            <input type="checkbox" id="optMic" checked />
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                                </svg>
+                                Microphone
+                            </span>
+                        </label>
+                        <label class="toggle-option">
+                            <input type="checkbox" id="optSystemAudio" checked />
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                                </svg>
+                                System Audio
+                            </span>
+                        </label>
+                        <label class="toggle-option">
+                            <input type="checkbox" id="optScreen" checked />
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                                    <line x1="8" y1="21" x2="16" y2="21"/>
+                                    <line x1="12" y1="17" x2="12" y2="21"/>
+                                </svg>
+                                Screen
+                            </span>
+                        </label>
+                    </div>
+
+                    <!-- Status Messages -->
+                    <div class="status-bar" id="statusBar">
+                        <span class="status-icon"></span>
+                        <span class="status-text" id="statusText">Ready to record</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ═══ RECORDINGS PANEL ═══ -->
+            <section id="panel-recordings" class="panel">
+                <div class="panel-header">
+                    <h1>Recordings</h1>
+                    <p class="subtitle">Your meeting recordings - click to view details</p>
+                </div>
+
+                <div class="recordings-toolbar">
+                    <input type="text" id="searchRecordings" placeholder="Search recordings..." class="search-input" />
+                    <button id="refreshRecordings" class="btn btn-secondary" title="Refresh">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="recordings-list" id="recordingsList">
+                    <div class="empty-state">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                            <line x1="12" y1="19" x2="12" y2="23"/>
+                            <line x1="8" y1="23" x2="16" y2="23"/>
+                        </svg>
+                        <p>No recordings yet</p>
+                        <p class="empty-hint">Start your first recording from the Record tab</p>
+                    </div>
+                </div>
+
+                <!-- Recording Detail Modal -->
+                <div class="modal-overlay" id="recordingModal" style="display: none;">
+                    <div class="modal">
+                        <div class="modal-header">
+                            <h2 id="modalTitle">Recording Details</h2>
+                            <button class="modal-close" id="modalClose">&times;</button>
+                        </div>
+                        <div class="modal-body" id="modalBody"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ═══ SETTINGS PANEL ═══ -->
+            <section id="panel-settings" class="panel">
+                <div class="panel-header">
+                    <h1>Settings</h1>
+                    <p class="subtitle">Configure recording preferences and storage</p>
+                </div>
+
+                <div class="settings-form">
+                    <div class="setting-group">
+                        <h3>Storage</h3>
+                        <div class="setting-row">
+                            <label>Recording Folder</label>
+                            <div class="path-input-group">
+                                <input type="text" id="settStoragePath" class="path-input" readonly />
+                                <button id="settBrowse" class="btn btn-secondary">Browse</button>
+                            </div>
+                            <p class="setting-hint">Recordings saved here are accessible to Claude via MCP</p>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <h3>Audio</h3>
+                        <div class="setting-row">
+                            <label>Audio Quality</label>
+                            <select id="settAudioQuality" class="select-input">
+                                <option value="64k">64 kbps (Low - smallest files)</option>
+                                <option value="128k" selected>128 kbps (Standard - recommended)</option>
+                                <option value="192k">192 kbps (High quality)</option>
+                                <option value="256k">256 kbps (Maximum quality)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <h3>Defaults</h3>
+                        <div class="setting-row">
+                            <label class="toggle-setting">
+                                <span>Record microphone by default</span>
+                                <input type="checkbox" id="settDefaultMic" checked />
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="setting-row">
+                            <label class="toggle-setting">
+                                <span>Record system audio by default</span>
+                                <input type="checkbox" id="settDefaultSystem" checked />
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="setting-row">
+                            <label class="toggle-setting">
+                                <span>Record screen by default</span>
+                                <input type="checkbox" id="settDefaultScreen" checked />
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="setting-row">
+                            <label class="toggle-setting">
+                                <span>Minimize to system tray</span>
+                                <input type="checkbox" id="settMinToTray" checked />
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <h3>About</h3>
+                        <div class="about-info">
+                            <p><strong>AbhiMeet</strong> v1.0.0</p>
+                            <p>Local meeting recorder with Claude AI integration via MCP.</p>
+                            <p>Supports: English, Hindi, Gujarati, Kutchi, Marathi, Bengali</p>
+                            <p class="about-hint">Ask Claude: "Transcribe my latest recording" to get started</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -230,10 +230,10 @@ def transcribe_recording(recording_id: str, model_size: str = "base") -> str:
 
         language = info.language or "unknown"
         lang_prob = round((info.language_probability or 0) * 100, 1)
-        transcription_md = f"# Transcription: {recording_id}\\n"
-        transcription_md += f"**Language**: {language} ({lang_prob}% confidence)\\n"
-        transcription_md += f"**Duration**: {info.duration:.1f}s\\n\\n"
-        transcription_md += "\\n".join(full_text)
+        transcription_md = f"# Transcription: {recording_id}\n"
+        transcription_md += f"**Language**: {language} ({lang_prob}% confidence)\n"
+        transcription_md += f"**Duration**: {info.duration:.1f}s\n\n"
+        transcription_md += "\n".join(full_text)
 
         # Save files
         (d / "transcription.md").write_text(transcription_md, encoding="utf-8")
@@ -244,7 +244,7 @@ def transcribe_recording(recording_id: str, model_size: str = "base") -> str:
             "duration": round(info.duration, 2),
             "transcribed_at": datetime.now().isoformat(),
             "model": model_size,
-            "full_text": "\\n".join([s["text"] for s in seg_data]),
+            "full_text": "\n".join([s["text"] for s in seg_data]),
             "segments": seg_data
         }
         (d / "transcription.json").write_text(json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -264,7 +264,7 @@ def transcribe_recording(recording_id: str, model_size: str = "base") -> str:
             "confidence": lang_prob,
             "segments_count": len(seg_data),
             "duration": round(info.duration, 2),
-            "preview": "\\n".join(full_text[:5]) + ("\\n..." if len(full_text) > 5 else ""),
+            "preview": "\n".join(full_text[:5]) + ("\n..." if len(full_text) > 5 else ""),
             "message": f"Transcribed {len(seg_data)} segments in {language} ({lang_prob}%)"
         }, ensure_ascii=False)
 

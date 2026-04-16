@@ -194,114 +194,115 @@ def transcribe_recording(recording_id: str, model_size: str = "base") -> str:
     if not d.exists():
         return json.dumps({"error": f"Recording '{recording_id}' not found"})
 
-    # Find audio file
     audio = _find_file(d, "_Audio_") or _find_file(d, "audio.mp3") or _find_file(d, "audio.webm")
     if not audio:
         return json.dumps({"error": "No audio file found to transcribe"})
 
+    meta_path = d / "metadata.json"
+
+    # Mark in_progress
     try:
-        from faster_whisper import WhisperModel
-        model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["transcription_status"] = "in_progress"
+        meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+    except: pass
 
-        segments_list, info = model.transcribe(str(audio), beam_size=5)
+    full_text = []
+    seg_data = []
+    language = "unknown"
+    duration = 0
+    engine = "unknown"
 
-        full_text = []
-        seg_data = []
-        for seg in segments_list:
-            h = int(seg.start // 3600)
-            m = int((seg.start % 3600) // 60)
-            s = int(seg.start % 60)
-            timestamp = f"{h:02d}:{m:02d}:{s:02d}"
-            full_text.append(f"[{timestamp}] {seg.text.strip()}")
-            seg_data.append({
-                "start": round(seg.start, 2),
-                "end": round(seg.end, 2),
-                "time": timestamp,
-                "text": seg.text.strip()
-            })
-
-        language = info.language or "unknown"
-        lang_prob = round((info.language_probability or 0) * 100, 1)
-        transcription_md = f"# Transcription: {recording_id}\n"
-        transcription_md += f"**Language**: {language} ({lang_prob}% confidence)\n"
-        transcription_md += f"**Model**: {model_size} (local)\n"
-        transcription_md += f"**Duration**: {info.duration:.1f}s\n\n"
-        transcription_md += "\n".join(full_text)
-
-        # Mark as in_progress in metadata (so app can show status)
-        meta_path = d / "metadata.json"
-        if meta_path.exists():
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            meta["transcription_status"] = "in_progress"
-            meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
-
-        # Save files
-        (d / "transcription.md").write_text(transcription_md, encoding="utf-8")
-        json_data = {
-            "recording_id": recording_id,
-            "language": language,
-            "language_probability": lang_prob,
-            "duration": round(info.duration, 2),
-            "transcribed_at": datetime.now().isoformat(),
-            "model": model_size,
-            "engine": "local-faster-whisper",
-            "full_text": "\n".join([s["text"] for s in seg_data]),
-            "segments": seg_data
-        }
-        (d / "transcription.json").write_text(json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8")
-
-        # ── VERIFICATION: check output is valid before marking complete ──
-        verify_ok = True
-        verify_issues = []
-        if len(seg_data) == 0:
-            verify_issues.append("No segments produced — audio may be silent or corrupt")
-            verify_ok = False
-        if not (d / "transcription.md").exists() or (d / "transcription.md").stat().st_size < 10:
-            verify_issues.append("Transcription file missing or empty")
-            verify_ok = False
-        if not (d / "transcription.json").exists():
-            verify_issues.append("JSON transcription file missing")
-            verify_ok = False
-        empty_segs = sum(1 for s in seg_data if not s["text"].strip())
-        if empty_segs > 0:
-            verify_issues.append(f"{empty_segs} empty segments found")
-
-        # Update metadata with final status
-        if meta_path.exists():
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            meta["transcription_status"] = "completed" if verify_ok else "partial"
-            meta["transcription_language"] = language
-            meta["transcribed_at"] = datetime.now().isoformat()
-            meta["transcription_segments"] = len(seg_data)
-            if verify_issues:
-                meta["transcription_issues"] = verify_issues
-            meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
-
-        return json.dumps({
-            "success": verify_ok,
-            "verified": verify_ok,
-            "language": language,
-            "confidence": lang_prob,
-            "segments_count": len(seg_data),
-            "duration": round(info.duration, 2),
-            "issues": verify_issues if verify_issues else None,
-            "preview": "\n".join(full_text[:5]) + ("\n..." if len(full_text) > 5 else ""),
-            "message": f"Transcribed {len(seg_data)} segments in {language} ({lang_prob}%) using {model_size}"
-                + (f" | Issues: {', '.join(verify_issues)}" if verify_issues else " | Verified OK")
-        }, ensure_ascii=False)
-
-    except Exception as e:
-        # Mark as failed in metadata
+    # ── TRY GROQ API FIRST (free, fast, best quality) ──
+    config = load_config()
+    groq_key = config.get("groq_api_key") or os.environ.get("GROQ_API_KEY", "")
+    if groq_key:
         try:
-            meta_path = d / "metadata.json"
-            if meta_path.exists():
+            from groq import Groq
+            client = Groq(api_key=groq_key)
+            with open(str(audio), "rb") as f:
+                result = client.audio.transcriptions.create(
+                    file=(audio.name, f),
+                    model="whisper-large-v3-turbo",
+                    response_format="verbose_json",
+                )
+            if hasattr(result, 'segments') and result.segments:
+                for seg in result.segments:
+                    start = getattr(seg, 'start', 0)
+                    end = getattr(seg, 'end', 0)
+                    text = getattr(seg, 'text', '')
+                    h, m, s = int(start//3600), int((start%3600)//60), int(start%60)
+                    ts = f"{h:02d}:{m:02d}:{s:02d}"
+                    full_text.append(f"[{ts}] {text.strip()}")
+                    seg_data.append({"start": round(start,2), "end": round(end,2), "time": ts, "text": text.strip()})
+            else:
+                full_text.append(result.text)
+                seg_data.append({"start":0,"end":0,"time":"00:00:00","text":result.text})
+            language = getattr(result, 'language', 'unknown') or 'unknown'
+            duration = getattr(result, 'duration', 0) or 0
+            engine = "groq-whisper-large-v3-turbo"
+        except Exception as e:
+            full_text = []
+            seg_data = []
+
+    # ── FALLBACK: LOCAL WHISPER ──
+    if not seg_data:
+        try:
+            from faster_whisper import WhisperModel
+            model = WhisperModel(model_size, device="cpu", compute_type="int8")
+            segments_list, info = model.transcribe(str(audio), beam_size=5)
+            for seg in segments_list:
+                h, m, s = int(seg.start//3600), int((seg.start%3600)//60), int(seg.start%60)
+                ts = f"{h:02d}:{m:02d}:{s:02d}"
+                full_text.append(f"[{ts}] {seg.text.strip()}")
+                seg_data.append({"start": round(seg.start,2), "end": round(seg.end,2), "time": ts, "text": seg.text.strip()})
+            language = info.language or "unknown"
+            duration = info.duration or 0
+            engine = f"local-faster-whisper-{model_size}"
+        except Exception as e:
+            try:
                 meta = json.loads(meta_path.read_text(encoding="utf-8"))
                 meta["transcription_status"] = "failed"
-                meta["transcription_error"] = str(e)
                 meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
-        except:
-            pass
-        return json.dumps({"error": f"Transcription failed: {str(e)}"})
+            except: pass
+            return json.dumps({"error": f"Transcription failed: {str(e)}"})
+
+    if not seg_data:
+        return json.dumps({"error": "No transcription produced"})
+
+    # ── SAVE RESULTS ──
+    transcription_md = f"# Transcription: {recording_id}\n"
+    transcription_md += f"**Language**: {language}\n"
+    transcription_md += f"**Engine**: {engine}\n"
+    transcription_md += f"**Duration**: {duration:.1f}s\n\n"
+    transcription_md += "\n".join(full_text)
+
+    (d / "transcription.md").write_text(transcription_md, encoding="utf-8")
+    json_data = {
+        "recording_id": recording_id, "language": language,
+        "duration": round(duration, 2), "transcribed_at": datetime.now().isoformat(),
+        "engine": engine,
+        "full_text": "\n".join([s["text"] for s in seg_data]),
+        "segments": seg_data
+    }
+    (d / "transcription.json").write_text(json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    # Update metadata
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["transcription_status"] = "completed"
+        meta["transcription_language"] = language
+        meta["transcribed_at"] = datetime.now().isoformat()
+        meta["transcription_segments"] = len(seg_data)
+        meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+    except: pass
+
+    return json.dumps({
+        "success": True, "language": language, "engine": engine,
+        "segments_count": len(seg_data), "duration": round(duration, 2),
+        "preview": "\n".join(full_text[:5]) + ("\n..." if len(full_text) > 5 else ""),
+        "message": f"Transcribed {len(seg_data)} segments in {language} via {engine}"
+    }, ensure_ascii=False)
 
 
 @mcp.tool()

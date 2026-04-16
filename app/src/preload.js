@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('abhimeet', {
 
     // Transcription
     readTranscription: (id) => ipcRenderer.invoke('read-transcription', id),
+    startTranscription: (id) => ipcRenderer.invoke('start-transcription', id),
+    onTranscriptionProgress: (cb) => ipcRenderer.on('transcription-progress', cb),
 
     // Settings
     getSettings: () => ipcRenderer.invoke('get-settings'),

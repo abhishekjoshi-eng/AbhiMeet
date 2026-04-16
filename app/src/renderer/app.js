@@ -117,11 +117,17 @@ async function startRecording() {
             if (sources.length > 0) {
                 desktopStream = await navigator.mediaDevices.getUserMedia({
                     audio: false,
-                    video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sources[0].id, maxFrameRate: 15 } }
+                    video: { mandatory: {
+                        chromeMediaSource: 'desktop',
+                        chromeMediaSourceId: sources[0].id,
+                        maxFrameRate: 1,    // 1 FPS — enough for meetings, saves 90% space
+                        minWidth: 1920,     // Full HD resolution so AI can read text
+                        minHeight: 1080,
+                    } }
                 });
                 screenRecorder = new MediaRecorder(desktopStream, {
                     mimeType: 'video/webm;codecs=vp8',
-                    videoBitsPerSecond: 1000000
+                    videoBitsPerSecond: 500000   // 500kbps — low bitrate since only 1 FPS
                 });
                 screenRecorder.ondataavailable = e => {
                     if (e.data.size > 0) {
@@ -427,15 +433,66 @@ async function loadTranscriptTab(recordingId) {
     } else if (result.status === 'in_progress') {
         transcriptTab.classList.remove('disabled');
         statusDiv.innerHTML = `<span class="status-badge-lg progress"><span class="spinner-sm"></span> Transcription in progress...</span>`;
-        contentDiv.innerHTML = '<p class="transcript-hint">Whisper AI is processing your audio. This takes 3-5 minutes.</p>';
+        contentDiv.innerHTML = '<p class="transcript-hint">Whisper AI is processing your audio. This may take a few minutes.</p>';
         contentDiv.style.display = 'block';
+        $('transcriptActions').style.display = 'none';
     } else {
+        // Not transcribed — show Transcribe button
         transcriptTab.classList.remove('disabled');
         statusDiv.innerHTML = `<span class="status-badge-lg pending">Not transcribed yet</span>`;
-        contentDiv.innerHTML = '<p class="transcript-hint">Ask Claude: "Transcribe my latest recording" to generate the transcript.</p>';
-        contentDiv.style.display = 'block';
+        contentDiv.innerHTML = '';
+        contentDiv.style.display = 'none';
+        $('transcriptActions').style.display = 'block';
+        $('btnTranscribe').onclick = () => startTranscriptionFromApp(recordingId);
     }
 }
+
+let _currentTranscribeId = null;
+
+async function startTranscriptionFromApp(recordingId) {
+    _currentTranscribeId = recordingId;
+    const statusDiv = $('transcriptStatus');
+    const contentDiv = $('transcriptContent');
+    const actionsDiv = $('transcriptActions');
+
+    // Update UI to show progress
+    statusDiv.innerHTML = `<span class="status-badge-lg progress"><span class="spinner-sm"></span> Transcribing with Whisper AI...</span>`;
+    contentDiv.innerHTML = '<p class="transcript-hint">Processing audio locally. This takes 3-5 minutes per minute of audio. Please wait...</p>';
+    contentDiv.style.display = 'block';
+    actionsDiv.style.display = 'none';
+
+    // Trigger transcription via IPC
+    const result = await window.abhimeet.startTranscription(recordingId);
+
+    if (result.success) {
+        // Reload transcript tab to show result
+        await loadTranscriptTab(recordingId);
+        loadRecordings(); // Refresh list to show TRANSCRIBED badge
+    } else {
+        statusDiv.innerHTML = `<span class="status-badge-lg" style="background:rgba(239,68,68,0.15);color:#ef4444;">Transcription Failed</span>`;
+        contentDiv.innerHTML = `<p class="transcript-hint">${result.error || 'Unknown error. Try again or ask Claude.'}</p>`;
+        contentDiv.style.display = 'block';
+        actionsDiv.style.display = 'block';
+    }
+}
+
+// Listen for auto-transcription progress (shown in main status bar + transcript tab)
+window.abhimeet.onTranscriptionProgress((_, data) => {
+    if (data.status === 'in_progress') {
+        setStatus(data.message || 'Transcribing...', 'processing');
+        const statusDiv = $('transcriptStatus');
+        if (statusDiv) statusDiv.innerHTML = `<span class="status-badge-lg progress"><span class="spinner-sm"></span> ${data.message || 'Transcribing...'}</span>`;
+    } else if (data.status === 'done') {
+        setStatus('Transcription complete!', 'ok');
+        loadRecordings(); // Refresh badges
+        // If player modal is open for this recording, reload transcript tab
+        if (_currentTranscribeId === data.id || $('playerTitle')?.textContent) {
+            loadTranscriptTab(data.id);
+        }
+    } else if (data.status === 'failed') {
+        setStatus('Transcription failed: ' + (data.message || 'unknown error'), 'error');
+    }
+});
 
 async function setupPlayerTab(tabName, fileInfo, recordingId, playerId, infoId) {
     const player = $(playerId);

@@ -179,7 +179,7 @@ def get_combined_file_path(recording_id: str) -> str:
 
 
 @mcp.tool()
-def transcribe_recording(recording_id: str, model_size: str = "large-v3-turbo") -> str:
+def transcribe_recording(recording_id: str, model_size: str = "base") -> str:
     """Transcribe a recording's audio using Whisper AI speech-to-text.
     Supports: English, Hindi, Gujarati, Marathi, Bengali, and many more languages.
     Auto-detects language. Saves transcription to recording folder.

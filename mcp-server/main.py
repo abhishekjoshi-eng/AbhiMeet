@@ -9,15 +9,6 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-# Lazy-load Whisper to avoid slow startup
-_whisper_model = None
-def get_whisper_model():
-    global _whisper_model
-    if _whisper_model is None:
-        from faster_whisper import WhisperModel
-        # Use "base" model for balance of speed + quality. "small" is better but slower.
-        _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
-    return _whisper_model
 
 mcp = FastMCP("abhimeet")
 
@@ -188,10 +179,11 @@ def get_combined_file_path(recording_id: str) -> str:
 
 
 @mcp.tool()
-def transcribe_recording(recording_id: str, model_size: str = "base") -> str:
+def transcribe_recording(recording_id: str, model_size: str = "large-v3-turbo") -> str:
     """Transcribe a recording's audio using Whisper AI speech-to-text.
     Supports: English, Hindi, Gujarati, Marathi, Bengali, and many more languages.
     Auto-detects language. Saves transcription to recording folder.
+    Uses large-v3-turbo model locally — best accuracy for Hindi/Gujarati. Takes 3-5 min per hour of audio.
 
     Args:
         recording_id: The recording folder ID
@@ -232,6 +224,7 @@ def transcribe_recording(recording_id: str, model_size: str = "base") -> str:
         lang_prob = round((info.language_probability or 0) * 100, 1)
         transcription_md = f"# Transcription: {recording_id}\n"
         transcription_md += f"**Language**: {language} ({lang_prob}% confidence)\n"
+        transcription_md += f"**Model**: {model_size} (local)\n"
         transcription_md += f"**Duration**: {info.duration:.1f}s\n\n"
         transcription_md += "\n".join(full_text)
 
@@ -244,6 +237,7 @@ def transcribe_recording(recording_id: str, model_size: str = "base") -> str:
             "duration": round(info.duration, 2),
             "transcribed_at": datetime.now().isoformat(),
             "model": model_size,
+            "engine": "local-faster-whisper",
             "full_text": "\n".join([s["text"] for s in seg_data]),
             "segments": seg_data
         }
@@ -265,7 +259,7 @@ def transcribe_recording(recording_id: str, model_size: str = "base") -> str:
             "segments_count": len(seg_data),
             "duration": round(info.duration, 2),
             "preview": "\n".join(full_text[:5]) + ("\n..." if len(full_text) > 5 else ""),
-            "message": f"Transcribed {len(seg_data)} segments in {language} ({lang_prob}%)"
+            "message": f"Transcribed {len(seg_data)} segments in {language} ({lang_prob}%) using {model_size}"
         }, ensure_ascii=False)
 
     except Exception as e:

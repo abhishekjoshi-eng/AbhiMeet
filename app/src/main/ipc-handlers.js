@@ -155,6 +155,31 @@ function setupIpcHandlers(mainWindow, store) {
         if (currentRecording?.screenWriteStream) currentRecording.screenWriteStream.write(Buffer.from(data));
     });
 
+    // ── Transcription ──
+    ipcMain.handle('read-transcription', (_, id) => {
+        const dirPath = path.join(store.get('storagePath'), id);
+        const mdPath = path.join(dirPath, 'transcription.md');
+        const jsonPath = path.join(dirPath, 'transcription.json');
+        if (fs.existsSync(jsonPath)) {
+            try {
+                const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+                return { status: 'done', data };
+            } catch { /* fall through */ }
+        }
+        if (fs.existsSync(mdPath)) {
+            return { status: 'done', data: { full_text: fs.readFileSync(mdPath, 'utf-8') } };
+        }
+        // Check metadata for in-progress
+        const metaPath = path.join(dirPath, 'metadata.json');
+        if (fs.existsSync(metaPath)) {
+            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            if (meta.transcription_status === 'in_progress') {
+                return { status: 'in_progress' };
+            }
+        }
+        return { status: 'pending' };
+    });
+
     // ── Recordings Management ──
     ipcMain.handle('list-recordings', () => listRecordings(store.get('storagePath')));
 

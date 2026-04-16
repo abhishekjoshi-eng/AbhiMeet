@@ -312,6 +312,9 @@ async function loadRecordings() {
         if (files.audio) badges.push('<span class="file-badge audio">MP3</span>');
         if (files.video) badges.push('<span class="file-badge video">Video</span>');
         if (files.combined) badges.push('<span class="file-badge combined">A+V</span>');
+        // Transcription status badge
+        if (r.has_transcription) badges.push('<span class="file-badge transcribed">Transcribed</span>');
+        else if (r.transcription_status === 'in_progress') badges.push('<span class="file-badge transcribing">Transcribing...</span>');
         if (badges.length === 0) badges.push('<span class="file-badge pending">Pending</span>');
         const date = r.date ? new Date(r.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
         return `<div class="recording-card" data-id="${r.id}">
@@ -362,10 +365,13 @@ async function openPlayer(recordingId) {
     const date = meta.date ? new Date(meta.date).toLocaleString('en-IN') : '';
     $('playerInfo').innerHTML = `<span>${date}</span><span>${meta.duration_formatted || ''}</span>`;
 
-    // Setup each tab
+    // Setup media tabs
     await setupPlayerTab('audio', files.audio, recordingId, 'audioPlayer', 'audioFileInfo');
     await setupPlayerTab('video', files.video, recordingId, 'videoPlayer', 'videoFileInfo');
     await setupPlayerTab('combined', files.combined, recordingId, 'combinedPlayer', 'combinedFileInfo');
+
+    // Setup transcript tab
+    await loadTranscriptTab(recordingId);
 
     // Select first available
     const first = files.audio ? 'audio' : files.video ? 'video' : files.combined ? 'combined' : 'audio';
@@ -381,6 +387,48 @@ async function openPlayer(recordingId) {
         }
     };
     modal.style.display = 'flex';
+}
+
+// ═══ Transcript Tab ═══
+async function loadTranscriptTab(recordingId) {
+    const transcriptTab = document.querySelector('[data-tab="transcript"]');
+    const statusDiv = $('transcriptStatus');
+    const contentDiv = $('transcriptContent');
+
+    const result = await window.abhimeet.readTranscription(recordingId);
+
+    if (result.status === 'done' && result.data) {
+        transcriptTab.classList.remove('disabled');
+        // Show language badge + content
+        const lang = result.data.language || '';
+        const model = result.data.model || '';
+        const segments = result.data.segments || [];
+
+        statusDiv.innerHTML = `<span class="status-badge-lg done">Transcription Complete</span>`;
+
+        let html = '';
+        if (lang) html += `<span class="lang-badge">${lang.toUpperCase()}${model ? ' \u2022 ' + model : ''}</span>\n`;
+
+        if (segments.length > 0) {
+            html += segments.map(s =>
+                `<span class="ts">[${s.time}]</span> ${s.text}`
+            ).join('\n');
+        } else if (result.data.full_text) {
+            html += result.data.full_text;
+        }
+        contentDiv.innerHTML = html;
+        contentDiv.style.display = 'block';
+    } else if (result.status === 'in_progress') {
+        transcriptTab.classList.remove('disabled');
+        statusDiv.innerHTML = `<span class="status-badge-lg progress"><span class="spinner-sm"></span> Transcription in progress...</span>`;
+        contentDiv.innerHTML = '<p class="transcript-hint">Whisper AI is processing your audio. This takes 3-5 minutes.</p>';
+        contentDiv.style.display = 'block';
+    } else {
+        transcriptTab.classList.remove('disabled');
+        statusDiv.innerHTML = `<span class="status-badge-lg pending">Not transcribed yet</span>`;
+        contentDiv.innerHTML = '<p class="transcript-hint">Ask Claude: "Transcribe my latest recording" to generate the transcript.</p>';
+        contentDiv.style.display = 'block';
+    }
 }
 
 async function setupPlayerTab(tabName, fileInfo, recordingId, playerId, infoId) {

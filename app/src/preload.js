@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld('abhimeet', {
     openFolder: (id) => ipcRenderer.invoke('open-recording-folder', id),
     getFileUrl: (id, filename) => ipcRenderer.invoke('get-file-url', id, filename),
 
+    // Transcription
+    readTranscription: (id) => ipcRenderer.invoke('read-transcription', id),
+
     // Settings
     getSettings: () => ipcRenderer.invoke('get-settings'),
     updateSettings: (s) => ipcRenderer.invoke('update-settings', s),

@@ -228,6 +228,13 @@ def transcribe_recording(recording_id: str, model_size: str = "large-v3-turbo") 
         transcription_md += f"**Duration**: {info.duration:.1f}s\n\n"
         transcription_md += "\n".join(full_text)
 
+        # Mark as in_progress in metadata (so app can show status)
+        meta_path = d / "metadata.json"
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            meta["transcription_status"] = "in_progress"
+            meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+
         # Save files
         (d / "transcription.md").write_text(transcription_md, encoding="utf-8")
         json_data = {
@@ -243,26 +250,57 @@ def transcribe_recording(recording_id: str, model_size: str = "large-v3-turbo") 
         }
         (d / "transcription.json").write_text(json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
-        # Update metadata
-        meta_path = d / "metadata.json"
+        # ── VERIFICATION: check output is valid before marking complete ──
+        verify_ok = True
+        verify_issues = []
+        if len(seg_data) == 0:
+            verify_issues.append("No segments produced — audio may be silent or corrupt")
+            verify_ok = False
+        if not (d / "transcription.md").exists() or (d / "transcription.md").stat().st_size < 10:
+            verify_issues.append("Transcription file missing or empty")
+            verify_ok = False
+        if not (d / "transcription.json").exists():
+            verify_issues.append("JSON transcription file missing")
+            verify_ok = False
+        empty_segs = sum(1 for s in seg_data if not s["text"].strip())
+        if empty_segs > 0:
+            verify_issues.append(f"{empty_segs} empty segments found")
+
+        # Update metadata with final status
         if meta_path.exists():
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            meta["transcription_status"] = "completed"
+            meta["transcription_status"] = "completed" if verify_ok else "partial"
             meta["transcription_language"] = language
             meta["transcribed_at"] = datetime.now().isoformat()
+            meta["transcription_segments"] = len(seg_data)
+            if verify_issues:
+                meta["transcription_issues"] = verify_issues
             meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
 
         return json.dumps({
-            "success": True,
+            "success": verify_ok,
+            "verified": verify_ok,
             "language": language,
             "confidence": lang_prob,
             "segments_count": len(seg_data),
             "duration": round(info.duration, 2),
+            "issues": verify_issues if verify_issues else None,
             "preview": "\n".join(full_text[:5]) + ("\n..." if len(full_text) > 5 else ""),
             "message": f"Transcribed {len(seg_data)} segments in {language} ({lang_prob}%) using {model_size}"
+                + (f" | Issues: {', '.join(verify_issues)}" if verify_issues else " | Verified OK")
         }, ensure_ascii=False)
 
     except Exception as e:
+        # Mark as failed in metadata
+        try:
+            meta_path = d / "metadata.json"
+            if meta_path.exists():
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                meta["transcription_status"] = "failed"
+                meta["transcription_error"] = str(e)
+                meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+        except:
+            pass
         return json.dumps({"error": f"Transcription failed: {str(e)}"})
 
 

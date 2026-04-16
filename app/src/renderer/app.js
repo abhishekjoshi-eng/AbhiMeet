@@ -58,7 +58,8 @@ async function startRecording() {
 
         // 1. Start recording on main process (creates folder + write streams)
         const title = meetingTitle.value.trim() || 'Meeting';
-        const result = await window.abhimeet.startRecording({ title, recordAudio: wantAudio, recordScreen: wantScreen });
+        const language = $('optLanguage') ? $('optLanguage').value : 'auto';
+        const result = await window.abhimeet.startRecording({ title, recordAudio: wantAudio, recordScreen: wantScreen, language });
         if (!result.success) throw new Error(result.error || 'Failed to start');
 
         // 2. Capture audio (mic + system combined into one stream)
@@ -483,7 +484,10 @@ window.abhimeet.onTranscriptionProgress((_, data) => {
         const statusDiv = $('transcriptStatus');
         if (statusDiv) statusDiv.innerHTML = `<span class="status-badge-lg progress"><span class="spinner-sm"></span> ${data.message || 'Transcribing...'}</span>`;
     } else if (data.status === 'done') {
-        setStatus('Transcription complete!', 'ok');
+        const r = data.result || {};
+        const lang = r.language ? ` (${r.language})` : '';
+        const segs = r.segments_count ? `, ${r.segments_count} segments` : '';
+        setStatus(`Transcription complete${lang}${segs}`, 'ok');
         loadRecordings(); // Refresh badges
         // If player modal is open for this recording, reload transcript tab
         if (_currentTranscribeId === data.id || $('playerTitle')?.textContent) {

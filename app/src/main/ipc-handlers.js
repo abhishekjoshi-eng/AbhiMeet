@@ -33,6 +33,7 @@ function setupIpcHandlers(mainWindow, store) {
 
         currentRecording = {
             id: recordingId, dirPath, title,
+            language: options.language || 'auto',
             startTime: new Date(),
             hasAudio: !!options.recordAudio,
             hasScreen: !!options.recordScreen,
@@ -153,7 +154,7 @@ function setupIpcHandlers(mainWindow, store) {
 
         // ── AUTO-TRANSCRIBE: add to FIFO queue after recording saves ──
         if (metadata.files.audio) {
-            queueTranscription(rec.id, store.get('storagePath'));
+            queueTranscription(rec.id, store.get('storagePath'), rec.language);
         }
 
         return { success: true, recordingId: rec.id, duration, metadata };
@@ -168,9 +169,9 @@ function setupIpcHandlers(mainWindow, store) {
     });
 
     // ── Transcription ──
-    ipcMain.handle('start-transcription', (_, id) => {
+    ipcMain.handle('start-transcription', (_, id, lang) => {
         // Manual trigger — just add to FIFO queue
-        queueTranscription(id, store.get('storagePath'));
+        queueTranscription(id, store.get('storagePath'), lang || 'auto');
         return { success: true, message: 'Added to transcription queue' };
     });
 
@@ -269,15 +270,17 @@ function formatDuration(sec) {
  * - New recordings added to end of queue
  * - On app startup, scans for untranscribed recordings and queues them
  */
-const transcriptionQueue = [];
+const transcriptionQueue = [];  // Array of { id, lang }
 let isTranscribing = false;
 let _mainWindow = null;
+let _storagePath = null;
 
-function queueTranscription(recordingId, storagePath) {
+function queueTranscription(recordingId, storagePath, language = 'auto') {
+    _storagePath = storagePath;
     // Don't add duplicates
-    if (transcriptionQueue.includes(recordingId)) return;
-    transcriptionQueue.push(recordingId);
-    console.log(`[Queue] Added: ${recordingId} | Queue: ${transcriptionQueue.length}`);
+    if (transcriptionQueue.find(q => q.id === recordingId)) return;
+    transcriptionQueue.push({ id: recordingId, lang: language });
+    console.log(`[Queue] Added: ${recordingId} (${language}) | Queue: ${transcriptionQueue.length}`);
     processQueue(storagePath);
 }
 
@@ -285,7 +288,9 @@ function processQueue(storagePath) {
     if (isTranscribing || transcriptionQueue.length === 0 || !_mainWindow) return;
 
     isTranscribing = true;
-    const recordingId = transcriptionQueue[0]; // FIFO — take first
+    const item = transcriptionQueue[0]; // FIFO — take first
+    const recordingId = item.id;
+    const lang = item.lang || 'auto';
     const dirPath = path.join(storagePath, recordingId);
     const remaining = transcriptionQueue.length - 1;
 
@@ -308,9 +313,22 @@ function processQueue(storagePath) {
     // Run Whisper
     const mcpDir = path.join(__dirname, '..', '..', '..', 'mcp-server');
     const uvPath = 'C:\\Users\\Abhishek-Asus\\AppData\\Local\\Programs\\Python\\Python314\\Scripts\\uv.exe';
+    // Build language hint for Whisper
+    const langMap = {
+        'auto': 'None', 'hi': '"hi"', 'gu': '"gu"', 'en': '"en"', 'mr': '"mr"', 'bn': '"bn"',
+        'hi-gu': '"hi"', 'hi-en': '"hi"', 'hi-gu-en': '"hi"'  // Use Hindi as primary for mixed
+    };
+    const langArg = langMap[lang] || 'None';
+
     const pyCode = `
-import sys, json
+import sys, json, os
 sys.stdout.reconfigure(encoding='utf-8')
+# Run at low CPU priority so other apps aren't affected
+try:
+    import ctypes
+    kernel32 = ctypes.windll.kernel32
+    kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x00004000)  # BELOW_NORMAL
+except: pass
 sys.path.insert(0, r'${mcpDir.replace(/\\/g, '\\\\')}')
 from main import transcribe_recording
 result = transcribe_recording('${recordingId}')
@@ -319,10 +337,10 @@ print(result)
 
     const { execFile: ef } = require('child_process');
     ef(uvPath, ['--directory', mcpDir, 'run', 'python', '-c', pyCode],
-        { timeout: 1800000, maxBuffer: 10 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } },
+        { timeout: 3600000, maxBuffer: 10 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } },
         (err, stdout) => {
             // Remove from queue
-            const idx = transcriptionQueue.indexOf(recordingId);
+            const idx = transcriptionQueue.findIndex(q => q.id === recordingId);
             if (idx !== -1) transcriptionQueue.splice(idx, 1);
             isTranscribing = false;
 

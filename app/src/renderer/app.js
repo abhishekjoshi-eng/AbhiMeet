@@ -100,7 +100,8 @@ async function startRecording() {
             // Record mixed audio stream
             const audioStream = mixDest.stream;
             if (audioStream.getAudioTracks().length > 0) {
-                audioRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus' });
+                audioRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 128000 });
+                audioRecorder.onerror = (e) => console.error('Audio recorder error:', e);
                 audioRecorder.ondataavailable = e => {
                     if (e.data.size > 0) {
                         e.data.arrayBuffer().then(buf => window.abhimeet.sendAudioChunk(buf));
@@ -120,14 +121,19 @@ async function startRecording() {
                 });
                 screenRecorder = new MediaRecorder(desktopStream, {
                     mimeType: 'video/webm;codecs=vp8',
-                    videoBitsPerSecond: 1500000
+                    videoBitsPerSecond: 1000000
                 });
                 screenRecorder.ondataavailable = e => {
                     if (e.data.size > 0) {
                         e.data.arrayBuffer().then(buf => window.abhimeet.sendScreenChunk(buf));
                     }
                 };
-                screenRecorder.start(3000);
+                // Restart screen recorder every 5 min to prevent stalling on long recordings
+                screenRecorder.onerror = (e) => {
+                    console.error('Screen recorder error:', e);
+                    try { screenRecorder.stop(); } catch {}
+                };
+                screenRecorder.start(5000); // 5-sec chunks for stability
             }
         }
 

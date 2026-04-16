@@ -17,7 +17,13 @@ let recordingStartTime = null;
 let recordingTimer = null;
 
 function setupIpcHandlers(mainWindow, store) {
+    _mainWindow = mainWindow;
     ensureStorageDir(store);
+
+    // On startup: queue all untranscribed recordings (FIFO)
+    setTimeout(() => {
+        queueUntranscribedRecordings(store.get('storagePath'));
+    }, 5000); // Wait 5s for app to fully load
 
     // ── Start Recording ──
     ipcMain.handle('start-recording', async (_, options = {}) => {
@@ -145,9 +151,9 @@ function setupIpcHandlers(mainWindow, store) {
         writeMetadata(rec.dirPath, metadata);
         mainWindow.webContents.send('processing-status', { status: 'done', message: 'Recording saved! Starting transcription...' });
 
-        // ── AUTO-TRANSCRIBE: start Whisper in background after recording saves ──
+        // ── AUTO-TRANSCRIBE: add to FIFO queue after recording saves ──
         if (metadata.files.audio) {
-            autoTranscribe(rec.id, rec.dirPath, mainWindow);
+            queueTranscription(rec.id, store.get('storagePath'));
         }
 
         return { success: true, recordingId: rec.id, duration, metadata };
@@ -162,68 +168,10 @@ function setupIpcHandlers(mainWindow, store) {
     });
 
     // ── Transcription ──
-    ipcMain.handle('start-transcription', async (_, id) => {
-        const storagePath = store.get('storagePath');
-        const dirPath = path.join(storagePath, id);
-        const metaPath = path.join(dirPath, 'metadata.json');
-        if (!fs.existsSync(metaPath)) return { success: false, error: 'Recording not found' };
-
-        // Mark in-progress
-        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-        meta.transcription_status = 'in_progress';
-        fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
-        mainWindow.webContents.send('transcription-progress', { id, status: 'in_progress', message: 'Starting Whisper AI...' });
-
-        // Find audio file
-        let audioFile = null;
-        const files = fs.readdirSync(dirPath);
-        for (const f of files) {
-            if (f.includes('_Audio_') && f.endsWith('.mp3')) { audioFile = path.join(dirPath, f); break; }
-            if (f === 'audio.mp3') { audioFile = path.join(dirPath, f); break; }
-        }
-        if (!audioFile) return { success: false, error: 'No audio file found' };
-
-        // Run Whisper via Python MCP server script
-        const mcpDir = path.join(__dirname, '..', '..', '..', 'mcp-server');
-        const { execFile: execFilePromise } = require('child_process');
-        const uvPath = 'C:\\Users\\Abhishek-Asus\\AppData\\Local\\Programs\\Python\\Python314\\Scripts\\uv.exe';
-
-        return new Promise((resolve) => {
-            const pyCode = `
-import sys, json
-sys.stdout.reconfigure(encoding='utf-8')
-sys.path.insert(0, r'${mcpDir.replace(/\\/g, '\\\\')}')
-from main import transcribe_recording
-result = transcribe_recording('${id}')
-print(result)
-`;
-            const child = execFilePromise(uvPath, ['--directory', mcpDir, 'run', 'python', '-c', pyCode],
-                { timeout: 600000, maxBuffer: 10 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } },
-                (err, stdout, stderr) => {
-                    if (err) {
-                        mainWindow.webContents.send('transcription-progress', { id, status: 'failed', message: err.message });
-                        resolve({ success: false, error: err.message });
-                        return;
-                    }
-                    try {
-                        // Find the JSON line in stdout
-                        const lines = stdout.trim().split('\n');
-                        const jsonLine = lines.find(l => l.trim().startsWith('{'));
-                        if (jsonLine) {
-                            const result = JSON.parse(jsonLine);
-                            mainWindow.webContents.send('transcription-progress', { id, status: 'done', result });
-                            resolve({ success: true, result });
-                        } else {
-                            mainWindow.webContents.send('transcription-progress', { id, status: 'done', message: 'Completed' });
-                            resolve({ success: true });
-                        }
-                    } catch (e) {
-                        mainWindow.webContents.send('transcription-progress', { id, status: 'done', message: 'Completed' });
-                        resolve({ success: true });
-                    }
-                }
-            );
-        });
+    ipcMain.handle('start-transcription', (_, id) => {
+        // Manual trigger — just add to FIFO queue
+        queueTranscription(id, store.get('storagePath'));
+        return { success: true, message: 'Added to transcription queue' };
     });
 
     ipcMain.handle('read-transcription', (_, id) => {
@@ -316,12 +264,32 @@ function formatDuration(sec) {
 }
 
 /**
- * Auto-transcribe: runs Whisper (faster-whisper) in background after recording stops.
- * This is NOT Claude/AI — it's a local speech-to-text engine already installed.
+ * FIFO Transcription Queue
+ * - One transcription at a time
+ * - New recordings added to end of queue
+ * - On app startup, scans for untranscribed recordings and queues them
  */
-function autoTranscribe(recordingId, dirPath, mainWindow) {
-    const mcpDir = path.join(__dirname, '..', '..', '..', 'mcp-server');
-    const uvPath = 'C:\\Users\\Abhishek-Asus\\AppData\\Local\\Programs\\Python\\Python314\\Scripts\\uv.exe';
+const transcriptionQueue = [];
+let isTranscribing = false;
+let _mainWindow = null;
+
+function queueTranscription(recordingId, storagePath) {
+    // Don't add duplicates
+    if (transcriptionQueue.includes(recordingId)) return;
+    transcriptionQueue.push(recordingId);
+    console.log(`[Queue] Added: ${recordingId} | Queue: ${transcriptionQueue.length}`);
+    processQueue(storagePath);
+}
+
+function processQueue(storagePath) {
+    if (isTranscribing || transcriptionQueue.length === 0 || !_mainWindow) return;
+
+    isTranscribing = true;
+    const recordingId = transcriptionQueue[0]; // FIFO — take first
+    const dirPath = path.join(storagePath, recordingId);
+    const remaining = transcriptionQueue.length - 1;
+
+    console.log(`[Queue] Processing: ${recordingId} | Remaining: ${remaining}`);
 
     // Mark as in_progress
     const metaPath = path.join(dirPath, 'metadata.json');
@@ -331,8 +299,15 @@ function autoTranscribe(recordingId, dirPath, mainWindow) {
         fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
     } catch {}
 
-    mainWindow.webContents.send('transcription-progress', { id: recordingId, status: 'in_progress', message: 'Auto-transcribing with Whisper AI...' });
+    const queueMsg = remaining > 0 ? ` (${remaining} more in queue)` : '';
+    _mainWindow.webContents.send('transcription-progress', {
+        id: recordingId, status: 'in_progress',
+        message: `Transcribing: ${recordingId}${queueMsg}`
+    });
 
+    // Run Whisper
+    const mcpDir = path.join(__dirname, '..', '..', '..', 'mcp-server');
+    const uvPath = 'C:\\Users\\Abhishek-Asus\\AppData\\Local\\Programs\\Python\\Python314\\Scripts\\uv.exe';
     const pyCode = `
 import sys, json
 sys.stdout.reconfigure(encoding='utf-8')
@@ -344,28 +319,55 @@ print(result)
 
     const { execFile: ef } = require('child_process');
     ef(uvPath, ['--directory', mcpDir, 'run', 'python', '-c', pyCode],
-        { timeout: 1200000, maxBuffer: 10 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } },
-        (err, stdout, stderr) => {
+        { timeout: 1800000, maxBuffer: 10 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } },
+        (err, stdout) => {
+            // Remove from queue
+            const idx = transcriptionQueue.indexOf(recordingId);
+            if (idx !== -1) transcriptionQueue.splice(idx, 1);
+            isTranscribing = false;
+
             if (err) {
-                console.error('Auto-transcribe failed:', err.message);
-                mainWindow.webContents.send('transcription-progress', { id: recordingId, status: 'failed', message: 'Transcription failed: ' + err.message });
-                return;
-            }
-            try {
-                const lines = stdout.trim().split('\n');
-                const jsonLine = lines.find(l => l.trim().startsWith('{'));
-                if (jsonLine) {
-                    const result = JSON.parse(jsonLine);
-                    mainWindow.webContents.send('transcription-progress', { id: recordingId, status: 'done', result });
-                    console.log('Auto-transcribe done:', recordingId, result.message || '');
-                } else {
-                    mainWindow.webContents.send('transcription-progress', { id: recordingId, status: 'done', message: 'Transcription complete' });
+                console.error(`[Queue] Failed: ${recordingId}:`, err.message);
+                _mainWindow.webContents.send('transcription-progress', { id: recordingId, status: 'failed', message: err.message });
+            } else {
+                try {
+                    const lines = stdout.trim().split('\n');
+                    const jsonLine = lines.find(l => l.trim().startsWith('{'));
+                    const result = jsonLine ? JSON.parse(jsonLine) : {};
+                    console.log(`[Queue] Done: ${recordingId}`, result.message || '');
+                    _mainWindow.webContents.send('transcription-progress', { id: recordingId, status: 'done', result });
+                } catch {
+                    _mainWindow.webContents.send('transcription-progress', { id: recordingId, status: 'done', message: 'Complete' });
                 }
-            } catch (e) {
-                mainWindow.webContents.send('transcription-progress', { id: recordingId, status: 'done', message: 'Transcription complete' });
             }
+
+            // Process next in queue
+            processQueue(storagePath);
         }
     );
+}
+
+/** Scan all recordings and queue any that aren't transcribed yet */
+function queueUntranscribedRecordings(storagePath) {
+    if (!fs.existsSync(storagePath)) return;
+    const dirs = fs.readdirSync(storagePath, { withFileTypes: true });
+    for (const d of dirs) {
+        if (!d.isDirectory()) continue;
+        const dirPath = path.join(storagePath, d.name);
+        const metaPath = path.join(dirPath, 'metadata.json');
+        if (!fs.existsSync(metaPath)) continue;
+
+        try {
+            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            const hasAudio = meta.files && meta.files.audio;
+            const isTranscribed = meta.transcription_status === 'completed';
+            const hasMdFile = fs.existsSync(path.join(dirPath, 'transcription.md'));
+
+            if (hasAudio && !isTranscribed && !hasMdFile) {
+                queueTranscription(d.name, storagePath);
+            }
+        } catch {}
+    }
 }
 
 module.exports = { setupIpcHandlers };

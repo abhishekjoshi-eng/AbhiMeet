@@ -216,10 +216,17 @@ def transcribe_recording(recording_id: str, model_size: str = "base", lang_hint:
     duration = 0
     engine = "unknown"
 
-    # Map lang_hint to Whisper language code (hi-gu-en etc. → primary language)
-    lang_map = {'auto': None, 'hi': 'hi', 'gu': 'gu', 'en': 'en', 'mr': 'mr', 'bn': 'bn',
-                'hi-gu': 'hi', 'hi-en': 'hi', 'hi-gu-en': 'hi'}
-    whisper_lang = lang_map.get(lang_hint)
+    # Map lang_hint to Whisper language code
+    # For pure languages: pass explicit code for better accuracy
+    # For mixed languages: use auto-detect (None) to let Whisper handle per-segment
+    lang_map = {
+        'auto': None,
+        'hi': 'hi', 'gu': 'gu', 'en': 'en', 'mr': 'mr', 'bn': 'bn',
+        'hi-gu': None,     # Mixed → auto-detect
+        'hi-en': None,     # Mixed → auto-detect
+        'hi-gu-en': None,  # Mixed → auto-detect
+    }
+    whisper_lang = lang_map.get(lang_hint, None)
 
     # ── TRY CLOUD API FIRST (Groq or OpenAI — free or paid) ──
     # Priority: Groq (free) > OpenAI (paid) > local Whisper

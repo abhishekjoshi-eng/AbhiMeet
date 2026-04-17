@@ -368,11 +368,14 @@ $('refreshRecordings')?.addEventListener('click', loadRecordings);
 $('searchRecordings')?.addEventListener('input', loadRecordings);
 
 // ═══ Player Modal ═══
+let _openedRecordingId = null;  // Track which recording is currently showing in modal
+
 async function openPlayer(recordingId) {
     const meta = await window.abhimeet.getRecording(recordingId);
     if (!meta) return;
     const modal = $('playerModal');
     const files = meta.files || {};
+    _openedRecordingId = recordingId;  // Track for auto-refresh
 
     $('playerTitle').textContent = meta.title || recordingId;
     const date = meta.date ? new Date(meta.date).toLocaleString('en-IN') : '';
@@ -481,20 +484,26 @@ async function startTranscriptionFromApp(recordingId) {
 window.abhimeet.onTranscriptionProgress((_, data) => {
     if (data.status === 'in_progress') {
         setStatus(data.message || 'Transcribing...', 'processing');
-        const statusDiv = $('transcriptStatus');
-        if (statusDiv) statusDiv.innerHTML = `<span class="status-badge-lg progress"><span class="spinner-sm"></span> ${data.message || 'Transcribing...'}</span>`;
+        // Only update modal's transcript tab if it's open for THIS specific recording
+        if (_openedRecordingId === data.id) {
+            const statusDiv = $('transcriptStatus');
+            if (statusDiv) statusDiv.innerHTML = `<span class="status-badge-lg progress"><span class="spinner-sm"></span> ${data.message || 'Transcribing...'}</span>`;
+        }
     } else if (data.status === 'done') {
         const r = data.result || {};
         const lang = r.language ? ` (${r.language})` : '';
         const segs = r.segments_count ? `, ${r.segments_count} segments` : '';
         setStatus(`Transcription complete${lang}${segs}`, 'ok');
-        loadRecordings(); // Refresh badges
-        // If player modal is open for this recording, reload transcript tab
-        if (_currentTranscribeId === data.id || $('playerTitle')?.textContent) {
+        loadRecordings(); // Refresh badges on all cards
+        // Auto-refresh transcript tab ONLY if modal is open for THIS recording
+        if (_openedRecordingId === data.id) {
             loadTranscriptTab(data.id);
         }
     } else if (data.status === 'failed') {
         setStatus('Transcription failed: ' + (data.message || 'unknown error'), 'error');
+        if (_openedRecordingId === data.id) {
+            loadTranscriptTab(data.id);
+        }
     }
 });
 
@@ -537,9 +546,14 @@ document.querySelectorAll('.player-tab').forEach(tab => {
     });
 });
 
-$('playerClose')?.addEventListener('click', () => { $('playerModal').style.display = 'none'; stopAllPlayers(); });
+function closePlayerModal() {
+    $('playerModal').style.display = 'none';
+    stopAllPlayers();
+    _openedRecordingId = null;
+}
+$('playerClose')?.addEventListener('click', closePlayerModal);
 $('playerModal')?.addEventListener('click', e => {
-    if (e.target === $('playerModal')) { $('playerModal').style.display = 'none'; stopAllPlayers(); }
+    if (e.target === $('playerModal')) closePlayerModal();
 });
 
 function stopAllPlayers() {

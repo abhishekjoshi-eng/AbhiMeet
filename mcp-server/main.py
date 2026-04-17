@@ -179,15 +179,17 @@ def get_combined_file_path(recording_id: str) -> str:
 
 
 @mcp.tool()
-def transcribe_recording(recording_id: str, model_size: str = "base") -> str:
+def transcribe_recording(recording_id: str, model_size: str = "base", lang_hint: str = "auto") -> str:
     """Transcribe a recording's audio using Whisper AI speech-to-text.
     Supports: English, Hindi, Gujarati, Marathi, Bengali, and many more languages.
     Auto-detects language. Saves transcription to recording folder.
-    Uses large-v3-turbo model locally — best accuracy for Hindi/Gujarati. Takes 3-5 min per hour of audio.
+    Uses Groq API if GROQ_API_KEY is set (free, instant, perfect quality).
+    Falls back to local faster-whisper otherwise (slower on CPU).
 
     Args:
         recording_id: The recording folder ID
         model_size: Whisper model - 'tiny' (fastest), 'base' (balanced), 'small' (best quality)
+        language: 'auto', 'hi' (Hindi), 'gu' (Gujarati), 'en' (English), 'hi-gu', 'hi-en', 'hi-gu-en', 'mr', 'bn'
     """
     storage = get_storage_path()
     d = storage / recording_id
@@ -213,6 +215,11 @@ def transcribe_recording(recording_id: str, model_size: str = "base") -> str:
     duration = 0
     engine = "unknown"
 
+    # Map lang_hint to Whisper language code (hi-gu-en etc. → primary language)
+    lang_map = {'auto': None, 'hi': 'hi', 'gu': 'gu', 'en': 'en', 'mr': 'mr', 'bn': 'bn',
+                'hi-gu': 'hi', 'hi-en': 'hi', 'hi-gu-en': 'hi'}
+    whisper_lang = lang_map.get(lang_hint)
+
     # ── TRY GROQ API FIRST (free, fast, best quality) ──
     config = load_config()
     groq_key = config.get("groq_api_key") or os.environ.get("GROQ_API_KEY", "")
@@ -220,12 +227,16 @@ def transcribe_recording(recording_id: str, model_size: str = "base") -> str:
         try:
             from groq import Groq
             client = Groq(api_key=groq_key)
+            groq_kwargs = {
+                "file": (audio.name, open(str(audio), "rb")),
+                "model": "whisper-large-v3-turbo",
+                "response_format": "verbose_json",
+            }
+            if whisper_lang:
+                groq_kwargs["language"] = whisper_lang
             with open(str(audio), "rb") as f:
-                result = client.audio.transcriptions.create(
-                    file=(audio.name, f),
-                    model="whisper-large-v3-turbo",
-                    response_format="verbose_json",
-                )
+                groq_kwargs["file"] = (audio.name, f)
+                result = client.audio.transcriptions.create(**groq_kwargs)
             if hasattr(result, 'segments') and result.segments:
                 for seg in result.segments:
                     start = getattr(seg, 'start', 0)
@@ -250,7 +261,10 @@ def transcribe_recording(recording_id: str, model_size: str = "base") -> str:
         try:
             from faster_whisper import WhisperModel
             model = WhisperModel(model_size, device="cpu", compute_type="int8")
-            segments_list, info = model.transcribe(str(audio), beam_size=5)
+            whisper_kwargs = {"beam_size": 5}
+            if whisper_lang:
+                whisper_kwargs["language"] = whisper_lang
+            segments_list, info = model.transcribe(str(audio), **whisper_kwargs)
             for seg in segments_list:
                 h, m, s = int(seg.start//3600), int((seg.start%3600)//60), int(seg.start%60)
                 ts = f"{h:02d}:{m:02d}:{s:02d}"

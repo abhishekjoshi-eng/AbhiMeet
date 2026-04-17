@@ -312,7 +312,8 @@ function processQueue(storagePath) {
 
     // Run Whisper
     const mcpDir = path.join(__dirname, '..', '..', '..', 'mcp-server');
-    const uvPath = 'C:\\Users\\Abhishek-Asus\\AppData\\Local\\Programs\\Python\\Python314\\Scripts\\uv.exe';
+    // Find uv.exe — use bundled venv python if available, else system uv from PATH
+    const uvPath = process.env.UV_PATH || 'uv';
     // Build language hint for Whisper
     const langMap = {
         'auto': 'None', 'hi': '"hi"', 'gu': '"gu"', 'en': '"en"', 'mr': '"mr"', 'bn': '"bn"',
@@ -331,7 +332,7 @@ try:
 except: pass
 sys.path.insert(0, r'${mcpDir.replace(/\\/g, '\\\\')}')
 from main import transcribe_recording
-result = transcribe_recording('${recordingId}')
+result = transcribe_recording('${recordingId}', lang_hint='${lang}')
 print(result)
 `;
 

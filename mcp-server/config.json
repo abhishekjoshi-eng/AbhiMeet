@@ -1,5 +1,5 @@
 {
-  "storage_path": "C:\\Abhishek Joshi Asus\\abhishek-google\\abhimeet\\recordings",
+  "storage_path": "./recordings",
   "whisper_model": "large-v3-turbo",
   "primary_languages": [
     "hindi",

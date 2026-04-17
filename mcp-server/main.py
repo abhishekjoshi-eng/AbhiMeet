@@ -4,6 +4,7 @@ With built-in Whisper transcription for speech-to-text."""
 import json
 import os
 import shutil
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -220,28 +221,46 @@ def transcribe_recording(recording_id: str, model_size: str = "base", lang_hint:
                 'hi-gu': 'hi', 'hi-en': 'hi', 'hi-gu-en': 'hi'}
     whisper_lang = lang_map.get(lang_hint)
 
-    # ── TRY GROQ API FIRST (free, fast, best quality) ──
+    # ── TRY CLOUD API FIRST (Groq or OpenAI — free or paid) ──
+    # Priority: Groq (free) > OpenAI (paid) > local Whisper
     config = load_config()
+    api_providers = []
     groq_key = config.get("groq_api_key") or os.environ.get("GROQ_API_KEY", "")
     if groq_key:
+        api_providers.append({
+            "name": "groq", "api_key": groq_key,
+            "base_url": "https://api.groq.com/openai/v1",
+            "model": "whisper-large-v3-turbo",
+        })
+    openai_key = config.get("openai_api_key") or os.environ.get("OPENAI_API_KEY", "")
+    if openai_key:
+        api_providers.append({
+            "name": "openai", "api_key": openai_key,
+            "base_url": "https://api.openai.com/v1",
+            "model": "whisper-1",
+        })
+
+    for provider in api_providers:
         try:
-            from groq import Groq
-            client = Groq(api_key=groq_key)
-            groq_kwargs = {
-                "file": (audio.name, open(str(audio), "rb")),
-                "model": "whisper-large-v3-turbo",
+            # Use OpenAI SDK for both (Groq is OpenAI-compatible)
+            from openai import OpenAI
+            client = OpenAI(api_key=provider["api_key"], base_url=provider["base_url"])
+            kwargs = {
+                "model": provider["model"],
                 "response_format": "verbose_json",
             }
             if whisper_lang:
-                groq_kwargs["language"] = whisper_lang
+                kwargs["language"] = whisper_lang
             with open(str(audio), "rb") as f:
-                groq_kwargs["file"] = (audio.name, f)
-                result = client.audio.transcriptions.create(**groq_kwargs)
-            if hasattr(result, 'segments') and result.segments:
-                for seg in result.segments:
-                    start = getattr(seg, 'start', 0)
-                    end = getattr(seg, 'end', 0)
-                    text = getattr(seg, 'text', '')
+                kwargs["file"] = f
+                result = client.audio.transcriptions.create(**kwargs)
+            # Parse segments
+            segments = getattr(result, 'segments', None) or []
+            if segments:
+                for seg in segments:
+                    start = getattr(seg, 'start', 0) if hasattr(seg, 'start') else seg.get('start', 0)
+                    end = getattr(seg, 'end', 0) if hasattr(seg, 'end') else seg.get('end', 0)
+                    text = getattr(seg, 'text', '') if hasattr(seg, 'text') else seg.get('text', '')
                     h, m, s = int(start//3600), int((start%3600)//60), int(start%60)
                     ts = f"{h:02d}:{m:02d}:{s:02d}"
                     full_text.append(f"[{ts}] {text.strip()}")
@@ -251,8 +270,10 @@ def transcribe_recording(recording_id: str, model_size: str = "base", lang_hint:
                 seg_data.append({"start":0,"end":0,"time":"00:00:00","text":result.text})
             language = getattr(result, 'language', 'unknown') or 'unknown'
             duration = getattr(result, 'duration', 0) or 0
-            engine = "groq-whisper-large-v3-turbo"
+            engine = f"{provider['name']}-{provider['model']}"
+            break  # Success — don't try the next provider
         except Exception as e:
+            print(f"[{provider['name']}] failed: {e}", file=sys.stderr)
             full_text = []
             seg_data = []
 

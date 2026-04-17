@@ -1,6 +1,6 @@
 {
   "storage_path": "./recordings",
-  "whisper_model": "large-v3-turbo",
+  "whisper_model": "base",
   "primary_languages": [
     "hindi",
     "gujarati",
@@ -15,5 +15,7 @@
     "bengali"
   ],
   "audio_format": "mp3",
-  "audio_bitrate": "128k"
+  "audio_bitrate": "128k",
+  "groq_api_key": "",
+  "openai_api_key": ""
 }

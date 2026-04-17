@@ -9,3 +9,7 @@ frames/
 .DS_Store
 Thumbs.db
 AbhiMeet-Portable.zip
+
+# Protect API keys and user-specific paths
+mcp-server/config.json
+.env

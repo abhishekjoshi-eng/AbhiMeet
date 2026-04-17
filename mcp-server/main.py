@@ -218,15 +218,29 @@ def transcribe_recording(recording_id: str, model_size: str = "base", lang_hint:
 
     # Map lang_hint to Whisper language code
     # For pure languages: pass explicit code for better accuracy
-    # For mixed languages: use auto-detect (None) to let Whisper handle per-segment
+    # For mixed languages: use auto-detect with a contextual prompt to preserve original scripts
     lang_map = {
         'auto': None,
         'hi': 'hi', 'gu': 'gu', 'en': 'en', 'mr': 'mr', 'bn': 'bn',
-        'hi-gu': None,     # Mixed → auto-detect
-        'hi-en': None,     # Mixed → auto-detect
-        'hi-gu-en': None,  # Mixed → auto-detect
+        'hi-gu': None, 'hi-en': None, 'hi-gu-en': None,  # Mixed → auto-detect per chunk
     }
     whisper_lang = lang_map.get(lang_hint, None)
+
+    # Contextual prompts help Whisper preserve original scripts for code-switched speech
+    # Each word should appear in its natural script (Devanagari for Hindi, Gujarati script for
+    # Gujarati, Roman for English), NOT transliterated
+    prompt_map = {
+        'auto': "Business meeting in India. Speakers may code-switch between Hindi, Gujarati, and English. Keep Hindi words in Devanagari (हिंदी), Gujarati words in Gujarati script (ગુજરાતી), and English words in Roman script. Example: मैंने उनको email किया था.",
+        'hi-en': "Business meeting in India. Speakers mix Hindi and English (Hinglish). Write Hindi words in Devanagari and English words in Roman. Example: मैंने उनको email किया था और meeting schedule की है.",
+        'hi-gu': "Business meeting in India. Speakers mix Hindi and Gujarati. Write Hindi words in Devanagari (हिंदी) and Gujarati words in Gujarati script (ગુજરાતી).",
+        'hi-gu-en': "Business meeting in India. Speakers mix Hindi, Gujarati, and English. Preserve original scripts: Devanagari for Hindi (हिंदी), Gujarati script (ગુજરાતી) for Gujarati, Roman for English. Example: મેં તેમને email કર્યો હતો and बाद में call भी किया.",
+        'hi': "Business meeting conducted in Hindi. Transcribe in Devanagari script. Keep any English words that appear in Roman script (brand names, technical terms).",
+        'gu': "Business meeting conducted in Gujarati. Transcribe in Gujarati script. Keep any English words in Roman script.",
+        'en': None,  # No prompt needed for pure English
+        'mr': "Business meeting in Marathi. Transcribe in Devanagari script.",
+        'bn': "Business meeting in Bengali. Transcribe in Bengali script.",
+    }
+    whisper_prompt = prompt_map.get(lang_hint)
 
     # ── TRY CLOUD API FIRST (Groq or OpenAI — free or paid) ──
     # Priority: Groq (free) > OpenAI (paid) > local Whisper
@@ -255,9 +269,12 @@ def transcribe_recording(recording_id: str, model_size: str = "base", lang_hint:
             kwargs = {
                 "model": provider["model"],
                 "response_format": "verbose_json",
+                "temperature": 0.0,  # Deterministic output
             }
             if whisper_lang:
                 kwargs["language"] = whisper_lang
+            if whisper_prompt:
+                kwargs["prompt"] = whisper_prompt
             with open(str(audio), "rb") as f:
                 kwargs["file"] = f
                 result = client.audio.transcriptions.create(**kwargs)
